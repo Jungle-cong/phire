@@ -25,23 +25,32 @@ jobs:
         with:
           ndk-version: r26d
 
-      - name: 创建 .env（dotenv_build 必需）
+      - name: 创建 .env
         run: touch .env
 
-      - name: 给 phire-main 加 Android 元数据
+      - name: phire-main 改造成 cdylib + android_main 入口
         run: |
           cat >> phire-main/Cargo.toml <<'EOF'
 
+          [lib]
+          crate-type = ["cdylib"]
+
           [package.metadata.android]
           package = "com.phire.app"
-          target_sdk_version = 33
-          min_sdk_version = 24
+          EOF
+          cat > phire-main/src/lib.rs <<'EOF'
+          use std::os::raw::c_void;
+
+          #[no_mangle]
+          pub extern "C" fn android_main(_ctx: *mut c_void) {
+              phire_ui::quad_main();
+          }
           EOF
 
       - name: 禁用 video feature（绕开 prpr-avc 静态库）
         run: sed -i 's/^phire = { workspace = true }$/phire = { workspace = true, default-features = false, features = ["log", "play"] }/' phire-ui/Cargo.toml
 
-      - name: openssl 改 vendored（Android 交叉编译必需）
+      - name: openssl 改 vendored
         run: sed -i 's/^openssl = "0.10.73"/openssl = { version = "0.10.73", features = ["vendored"] }/' Cargo.toml
 
       - name: 安装 cargo-apk
@@ -56,4 +65,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: phire.apk
-          path: target/aarch64-linux-android/release/apk/*.apk
+          path: "**/*.apk"
