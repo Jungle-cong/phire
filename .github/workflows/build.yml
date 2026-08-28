@@ -17,7 +17,7 @@ jobs:
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - name: 安装 Android NDK
         uses: nttld/setup-ndk@v1
@@ -25,39 +25,35 @@ jobs:
         with:
           ndk-version: r26d
 
-      - name: 配置 Rust 链接器
+      - name: 创建 .env（dotenv_build 必需）
+        run: touch .env
+
+      - name: 给 phire-main 加 Android 元数据
         run: |
-          cat >> ~/.cargo/config.toml <<EOF
-          [target.aarch64-linux-android]
-          linker = "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang"
+          cat >> phire-main/Cargo.toml <<'EOF'
 
-          [target.armv7-linux-androideabi]
-          linker = "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi33-clang"
-
-          [target.x86_64-linux-android]
-          linker = "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android33-clang"
+          [package.metadata.android]
+          package = "com.phire.app"
+          target_sdk_version = 33
+          min_sdk_version = 24
           EOF
 
-      - name: 编译 Rust 库
-        working-directory: rust-core
-        run: |
-          cargo build --release --target aarch64-linux-android
-          cargo build --release --target armv7-linux-androideabi
-          cargo build --release --target x86_64-linux-android
+      - name: 禁用 video feature（绕开 prpr-avc 静态库）
+        run: sed -i 's/^phire = { workspace = true }$/phire = { workspace = true, default-features = false, features = ["log", "play"] }/' phire-ui/Cargo.toml
 
-      - name: 拷贝 so 到 Android 工程
-        run: |
-          mkdir -p android/app/src/main/jniLibs/{arm64-v8a,armeabi-v7a,x86_64}
-          cp rust-core/target/aarch64-linux-android/release/librust_core.so android/app/src/main/jniLibs/arm64-v8a/
-          cp rust-core/target/armv7-linux-androideabi/release/librust_core.so android/app/src/main/jniLibs/armeabi-v7a/
-          cp rust-core/target/x86_64-linux-android/release/librust_core.so android/app/src/main/jniLibs/x86_64/
+      - name: openssl 改 vendored（Android 交叉编译必需）
+        run: sed -i 's/^openssl = "0.10.73"/openssl = { version = "0.10.73", features = ["vendored"] }/' Cargo.toml
 
-      - name: Gradle 打包 APK
-        working-directory: android
-        run: ./gradlew assembleDebug
+      - name: 安装 cargo-apk
+        run: cargo install cargo-apk --locked
+
+      - name: 构建 APK
+        env:
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: cargo apk build --release -p phire-main --target aarch64-linux-android
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug.apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: phire.apk
+          path: target/aarch64-linux-android/release/apk/*.apk
