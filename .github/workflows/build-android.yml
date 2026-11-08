@@ -1,31 +1,59 @@
-name: Build Android APK
+name: Build Android Phira
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
+
+env:
+  CARGO_TERM_COLOR: always
+  ANDROID_HOME: ${{github.workspace}}/android-sdk
+  ANDROID_NDK_HOME: ${{github.workspace}}/android-ndk-r27c
+  ANDROID_NDK_ROOT: ${{github.workspace}}/android-ndk-r27c
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  Build:
+
+    runs-on: ubuntu-24.04
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libssl-dev pkg-config
 
-      - name: Install cargo‑ndk
-        run: cargo install cargo-ndk
-
-      - name: Build & generate APK
+      - name: Set Up static-lib
         run: |
-          rustup target add aarch64-linux-android
-          cargo ndk --target aarch64-linux-android --android-platform 24 -- build --release
+          cd prpr-avc
+          bash pull-static-lib.sh
+          cd ..
 
-      - name: Upload outputs
+      - name: Install Android SDK Tools
+        run: |
+          wget https://dl.google.com/android/repository/commandlinetools-linux-8512546_latest.zip
+          unzip commandlinetools-linux-8512546_latest.zip -d $ANDROID_HOME
+          echo y | $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "platform-tools" "build-tools;33.0.2" "platforms;android-35"
+
+      - name: Install Android NDK
+        run: |
+          wget https://googledownloads.cn/android/repository/android-ndk-r27c-linux.zip
+          unzip android-ndk-r27c-linux.zip -d ${{github.workspace}}
+
+      - name: Install Rust Toolchains
+        uses: actions-rs/toolchain@v1.0.6
+        with:
+          toolchain: nightly-2026-01-01 # If there are updates to the nightly toolchain that Phira relies on, these changes need to be synchronized here
+          target: aarch64-linux-android
+
+      - name: Build for Android
+        run: |
+          cd phira
+          cargo install cargo-ndk
+          cargo ndk -t arm64-v8a --platform 35 build --release
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apk-output
-          path: target/aarch64-linux-android/release/apk/*.apk
+          name: android-build
+          path: |
+            target/aarch64-linux-android/release/libphira.so
